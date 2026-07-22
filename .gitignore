@@ -1,7 +1,6 @@
- GITIGNORE
+GITIGNORE
 .env
 output/*.db
 output/*.json
 __pycache__/
 *.pyc
- 

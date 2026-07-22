@@ -11,6 +11,7 @@ Run:
 
 import os
 import sqlite3
+import sys
 from pathlib import Path
 
 import streamlit as st
@@ -19,6 +20,16 @@ from google import genai
 from google.genai import types
 
 load_dotenv()
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
+from vector_embedding.src.generate_answer import (
+    retrieve_entity_context,
+    retrieve_graph_context,
+    retrieve_vector_chunks,
+)
 
 DB_PATH = str(Path(__file__).resolve().parent.parent / "entity_extraction" / "output" / "meridian.db")
 
@@ -57,46 +68,52 @@ st.markdown("""
 
 # ---------------------------------------------------------------------------
 # Retrieval + answer generation
-# (Same interim SQL-grounded approach as before — this is the seam where the
-# hybrid vector+SQL router plugs in later. Nothing about the UI below depends
-# on how this function works internally.)
+# The UI stays the same, but the context now comes from the shared end-to-end
+# pipeline: vector chunks + entity store + graph relationships.
 # ---------------------------------------------------------------------------
-
-STOPWORDS = {
-    "what", "which", "when", "where", "does", "did", "the", "and", "for",
-    "with", "was", "were", "have", "has", "this", "that", "used", "how",
-    "many", "much", "are", "you", "tell", "about", "show", "list",
-}
-
-
-def extract_keywords(question: str) -> list[str]:
-    words = [w.strip("?.,!:;\"'()").lower() for w in question.split()]
-    return [w for w in words if len(w) >= 4 and w not in STOPWORDS] or [question]
 
 
 def retrieve_context(question: str, db_path: str, top_k: int = 12) -> list[dict]:
-    keywords = extract_keywords(question)
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    vector_chunks = retrieve_vector_chunks(question, top_k=max(3, top_k // 2))
+    entity_rows = retrieve_entity_context(question, top_k=max(3, top_k // 2))
+    graph_rows = retrieve_graph_context(question, top_k=max(2, top_k // 3))
 
-    clauses = " OR ".join(["e.entity_name LIKE ? OR em.context_snippet LIKE ?"] * len(keywords))
-    params = []
-    for kw in keywords:
-        params.extend([f"%{kw}%", f"%{kw}%"])
+    context_rows = []
 
-    rows = conn.execute(
-        f"""
-        SELECT em.document_id, em.chunk_id, em.page, em.context_snippet,
-               e.entity_name, e.entity_type, e.entity_code, em.attributes_json
-        FROM entity_mentions em
-        JOIN entities e ON e.entity_id = em.entity_id
-        WHERE {clauses}
-        LIMIT ?
-        """,
-        (*params, top_k),
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    for chunk in vector_chunks:
+        context_rows.append({
+            "document_id": chunk["document_id"],
+            "page": chunk["page"],
+            "entity_type": "VECTOR_CHUNK",
+            "entity_name": chunk["chunk_id"],
+            "entity_code": None,
+            "context_snippet": chunk["text"],
+        })
+
+    for row in entity_rows:
+        context_rows.append({
+            "document_id": row["document_id"],
+            "page": row["page"],
+            "entity_type": row["entity_type"],
+            "entity_name": row["entity_name"],
+            "entity_code": row.get("entity_code"),
+            "context_snippet": row.get("context_snippet", ""),
+        })
+
+    for row in graph_rows:
+        context_rows.append({
+            "document_id": row["document_id"],
+            "page": None,
+            "entity_type": "GRAPH_RELATION",
+            "entity_name": f"{row['source_name']} -> {row['target_name']}",
+            "entity_code": None,
+            "context_snippet": (
+                f"{row['source_name']} ({row['source_type']}) "
+                f"{row['relationship_type']} {row['target_name']} ({row['target_type']})"
+            ),
+        })
+
+    return context_rows[:top_k]
 
 
 def generate_answer(question: str, context_rows: list[dict]) -> str:
@@ -108,20 +125,18 @@ def generate_answer(question: str, context_rows: list[dict]) -> str:
         return "I couldn't find anything related to that in the available records."
 
     context_text = "\n".join(
-        f"- [{r['document_id']} / {r['chunk_id']} / page {r['page']}] "
+        f"- [{r['document_id']} / page {r['page'] or 'N/A'}] "
         f"{r['entity_type']}: {r['entity_name']}"
-        + (f" ({r['entity_code']})" if r["entity_code"] else "")
-        + (f" — context: {r['context_snippet']}" if r["context_snippet"] else "")
+        + (f" ({r['entity_code']})" if r.get("entity_code") else "")
+        + (f" — context: {r['context_snippet']}" if r.get("context_snippet") else "")
         for r in context_rows
     )
 
     client = genai.Client(api_key=api_key)
     system_prompt = (
         "You answer questions about pharmaceutical manufacturing records using ONLY "
-        "the structured entity data provided below. If the context doesn't contain "
-        "the answer, say so directly — never guess or use outside knowledge. Answer "
-        "in plain, direct prose. Do not mention databases, entities, or internal "
-        "system details — just answer as if you know the manufacturing records."
+        "the evidence provided below. If the context doesn't contain the answer, say so "
+        "directly — never guess or use outside knowledge. Answer in plain, direct prose."
     )
     resp = client.models.generate_content(
         model="gemini-flash-latest",
@@ -137,7 +152,7 @@ def format_sources(context_rows: list[dict]) -> str:
     context without looking like a debug panel."""
     seen = []
     for r in context_rows:
-        label = f"{r['document_id']} (p.{r['page']})"
+        label = f"{r['document_id']} (p.{r['page']})" if r.get("page") else r["document_id"]
         if label not in seen:
             seen.append(label)
     return ", ".join(seen[:5])

@@ -29,7 +29,8 @@ def extract_keywords(question: str) -> list[str]:
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 chroma_client = chromadb.PersistentClient(path=str(CHROMA_DB_PATH))
 collection = chroma_client.get_collection(name=COLLECTION_NAME)
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+api_key = os.environ.get("GEMINI_API_KEY")
+client = genai.Client(api_key=api_key) if api_key else None
 
 
 def retrieve_vector_chunks(question, top_k=5):
