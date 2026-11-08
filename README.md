@@ -208,7 +208,12 @@ This blend improves answer quality by combining **semantic similarity**, **expli
 ```bash
 pip install -r ingestion/requirements.txt
 pip install -r vector_embedding/requirements.txt
+pip install streamlit google-genai pyvis
 ```
+
+Copy `.env.example` to `.env` and add your `GEMINI_API_KEY`.
+
+For OCR on images, install Tesseract. If it's not in the default location, set `TESSERACT_CMD`.
 
 ### 2. Prepare the documents
 Run the ingestion pipeline to create `chunks.json`.

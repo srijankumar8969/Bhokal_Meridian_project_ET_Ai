@@ -159,6 +159,9 @@ ANSWER:"""
 
 
 def generate_answer(question, top_k=5):
+    if client is None:
+        raise SystemExit("GEMINI_API_KEY not set, add it to your .env file.")
+
     vector_chunks = retrieve_vector_chunks(question, top_k)
     entity_rows = retrieve_entity_context(question, top_k=4)
     graph_rows = retrieve_graph_context(question, top_k=4)

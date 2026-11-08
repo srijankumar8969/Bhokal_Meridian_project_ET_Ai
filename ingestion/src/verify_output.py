@@ -22,10 +22,12 @@ def verify_chunks():
             print(f"EMPTY TEXT in {chunk.get('chunk_id', 'UNKNOWN')}")
             errors += 1
 
-        if chunk["chunk_id"] in seen_ids:
-            print(f"DUPLICATE chunk_id: {chunk['chunk_id']}")
-            errors += 1
-        seen_ids.add(chunk["chunk_id"])
+        chunk_id = chunk.get("chunk_id")
+        if chunk_id is not None:
+            if chunk_id in seen_ids:
+                print(f"DUPLICATE chunk_id: {chunk_id}")
+                errors += 1
+            seen_ids.add(chunk_id)
 
     if errors == 0:
         print("All chunks passed validation. Ready for handoff.")

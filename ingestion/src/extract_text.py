@@ -5,8 +5,10 @@ import pandas as pd
 import pytesseract
 from PIL import Image
 
-# Tell pytesseract where Tesseract is installed (adjust if your install path differs)
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+# Tesseract path (set TESSERACT_CMD if it's installed somewhere else)
+TESSERACT_CMD = os.environ.get("TESSERACT_CMD", r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+if os.path.exists(TESSERACT_CMD):
+    pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
 
 DATA_DIR = "ingestion/data"
 OUTPUT_DIR = "ingestion/output"
@@ -69,7 +71,7 @@ def process_all_documents():
                 pages = extract_txt_text(filepath)
             elif ext in ("csv", "xlsx"):
                 pages = extract_spreadsheet_text(filepath)
-            elif ext == "png":
+            elif ext in ("png", "jpg", "jpeg"):
                 pages = extract_image_text(filepath)
             else:
                 print(f"Skipping (not handled yet): {filename}")
