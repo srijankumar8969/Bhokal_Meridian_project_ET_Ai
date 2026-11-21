@@ -138,11 +138,14 @@ def generate_answer(question: str, context_rows: list[dict]) -> str:
         "the evidence provided below. If the context doesn't contain the answer, say so "
         "directly — never guess or use outside knowledge. Answer in plain, direct prose."
     )
-    resp = client.models.generate_content(
-        model="gemini-flash-latest",
-        contents=f"Context:\n{context_text}\n\nQuestion: {question}",
-        config=types.GenerateContentConfig(system_instruction=system_prompt, temperature=0.2),
-    )
+    try:
+        resp = client.models.generate_content(
+            model="gemini-flash-latest",
+            contents=f"Context:\n{context_text}\n\nQuestion: {question}",
+            config=types.GenerateContentConfig(system_instruction=system_prompt, temperature=0.2),
+        )
+    except Exception:
+        return "Couldn't get an answer right now, please try again."
     return resp.text
 
 
